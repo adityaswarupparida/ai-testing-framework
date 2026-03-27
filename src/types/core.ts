@@ -34,9 +34,10 @@ export interface GroundTruth {
 }
 
 export interface JudgeVerdict {
-  accuracyScore: number;
-  relevanceScore: number;
-  totalScore: number;
+  completenessScore: number;  // did it address everything asked?
+  coherenceScore: number;     // is it consistent with the conversation?
+  totalScore: number;         // average of completeness + coherence
+  passed: boolean;
   reasoning: string;
-  rawResponse?: string;
+  rawLlmResponse?: string;
 }

@@ -4,9 +4,8 @@ export interface AnalysisResult {
   strategy: "exact" | "semantic" | "composite";
   score: number;
   groundTruth?: string;
-  judgeScore?: number;
-  difference?: number;
   isHumanNeed: boolean;
+  roundNumber?: number;
 }
 
 export interface AnalysisStrategy {

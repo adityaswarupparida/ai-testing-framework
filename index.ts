@@ -1,8 +1,9 @@
-import { loadConfig, loadScenarios } from "./src/config/loader";
+import { loadConfig, loadScenarios, upsertScenario } from "./src/config/loader";
+import type { ScenarioDbMap } from "./src/config/loader";
+import { EmbeddingGenerator } from "./src/analyzer/embedding-generator";
 import { GeminiProvider } from "./src/adapters/llm/gemini-provider";
 import { TrackedLlmProvider } from "./src/adapters/llm/tracked-provider";
 import { HttpModelAdapter } from "./src/adapters/model/http-adapter";
-import { FunctionModelAdapter } from "./src/adapters/model/function-adapter";
 import { LlmJudge } from "./src/judge/llm-judge";
 import { LlmQuestionnaireAgent } from "./src/questionnaire/llm-questionnaire";
 import { CompositeAnalyzer } from "./src/analyzer/composite-analyzer";
@@ -73,19 +74,31 @@ async function main() {
     );
   }
 
+  // Create embedding generator (used for semantic analysis + responseEmbedding storage)
+  const embedder = new EmbeddingGenerator();
+
+  // Upsert all scenarios into DB and collect DB id maps
+  console.log("\nSyncing scenarios to database...");
+  const scenarioDbMaps = new Map<string, ScenarioDbMap>();
+  for (const scenario of scenarios) {
+    process.stdout.write(`  Upserting '${scenario.name}'... `);
+    const dbMap = await upsertScenario(scenario, embedder);
+    scenarioDbMaps.set(scenario.id, dbMap);
+    console.log(`done (${Object.keys(dbMap.seedQuestionDbIds).length} questions)`);
+  }
+
   // Create LLM providers
   const baseProvider = new GeminiProvider(config.llm.model);
   const judgeProvider = new TrackedLlmProvider(baseProvider, "judge");
   const questionnaireProvider = new TrackedLlmProvider(baseProvider, "questionnaire");
-  const analyzerProvider = new TrackedLlmProvider(baseProvider, "semantic_analyzer");
 
   // Create components
-  const judge = new LlmJudge(judgeProvider);
+  const judge = new LlmJudge(judgeProvider, config.judge.passThreshold);
   const questionnaire = new LlmQuestionnaireAgent(
     questionnaireProvider,
     config.questionnaire.personaPrompt
   );
-  const analyzer = new CompositeAnalyzer(analyzerProvider, config.analyzer.weights);
+  const analyzer = new CompositeAnalyzer(embedder, config.analyzer.weights);
 
   // Create reporters
   const reporters = [];
@@ -103,11 +116,12 @@ async function main() {
     questionnaire,
     analyzer,
     reporters,
-    trackedProviders: [judgeProvider, questionnaireProvider, analyzerProvider],
+    trackedProviders: [judgeProvider, questionnaireProvider],
+    embedder,
   });
 
   console.log("\nStarting test run...\n");
-  const report = await runner.run(scenarios, runName);
+  const report = await runner.run(scenarios, scenarioDbMaps, runName);
 
   process.exit(report.summary.status === "passed" ? 0 : 1);
 }

@@ -1,4 +1,5 @@
-import type { Reporter, TestReport } from "../types/report";
+import type { Reporter, TestReport, ScenarioReport } from "../types/report";
+import type { AnalysisResult } from "../types/analyzer";
 
 export class ConsoleReporter implements Reporter {
   async report(testReport: TestReport): Promise<void> {
@@ -15,6 +16,9 @@ export class ConsoleReporter implements Reporter {
       console.log(`\n${statusIcon} ${scenario.scenarioName} (score: ${scenario.aggregate.toFixed(2)})`);
       console.log("-".repeat(50));
 
+      // Group analysis results by round number for easy lookup
+      const analysisByRound = this.groupAnalysisByRound(scenario);
+
       for (const turn of scenario.turns) {
         const judgeScore = turn.judgeVerdict
           ? `judge: ${turn.judgeVerdict.totalScore.toFixed(2)}`
@@ -28,16 +32,12 @@ export class ConsoleReporter implements Reporter {
         if (turn.judgeVerdict) {
           console.log(`    Reasoning: ${this.truncate(turn.judgeVerdict.reasoning, 80)}`);
         }
-      }
 
-      if (scenario.analysisResults.length > 0) {
-        console.log(`\n  Analysis:`);
-        for (const result of scenario.analysisResults) {
-          const humanFlag = result.isHumanNeed ? " [NEEDS HUMAN REVIEW]" : "";
-          console.log(`    ${result.strategy}: ${result.score.toFixed(2)}${humanFlag}`);
-          if (result.difference !== undefined) {
-            console.log(`      difference (analysis - judge): ${result.difference.toFixed(2)}`);
-          }
+        const results = analysisByRound.get(turn.roundNumber);
+        if (results && results.length > 0) {
+          const parts = results.map((r) => `${r.strategy}: ${r.score.toFixed(2)}`).join(" | ");
+          const humanFlag = results.some((r) => r.isHumanNeed) ? " [NEEDS HUMAN REVIEW]" : "";
+          console.log(`    Analysis: ${parts}${humanFlag}`);
         }
       }
     }
@@ -48,6 +48,17 @@ export class ConsoleReporter implements Reporter {
     console.log(`  Average Score: ${summary.averageScore.toFixed(2)}`);
     console.log(`  Overall: ${summary.status.toUpperCase()}`);
     console.log("=".repeat(70) + "\n");
+  }
+
+  private groupAnalysisByRound(scenario: ScenarioReport): Map<number, AnalysisResult[]> {
+    const map = new Map<number, AnalysisResult[]>();
+    for (const result of scenario.analysisResults) {
+      if (result.roundNumber === undefined) continue;
+      const existing = map.get(result.roundNumber) ?? [];
+      existing.push(result);
+      map.set(result.roundNumber, existing);
+    }
+    return map;
   }
 
   private truncate(text: string, maxLen: number): string {

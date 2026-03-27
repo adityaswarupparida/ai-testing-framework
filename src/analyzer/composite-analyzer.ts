@@ -2,7 +2,7 @@ import type { ConversationTurn, GroundTruth } from "../types";
 import type { AnalysisResult, ResponseAnalyzer } from "../types/analyzer";
 import { ExactMatchAnalyzer } from "./exact-match";
 import { SemanticSimilarityAnalyzer } from "./semantic-similarity";
-import type { LlmProvider } from "../adapters/llm/provider";
+import type { EmbeddingGenerator } from "./embedding-generator";
 
 export interface CompositeWeights {
   exact: number;
@@ -21,9 +21,9 @@ export class CompositeAnalyzer implements ResponseAnalyzer {
   private semanticAnalyzer: SemanticSimilarityAnalyzer;
   private defaultWeights: CompositeWeights;
 
-  constructor(llm: LlmProvider, defaultWeights: CompositeWeights = { exact: 0.7, semantic: 0.3 }) {
+  constructor(embedder: EmbeddingGenerator, defaultWeights: CompositeWeights = { exact: 0.7, semantic: 0.3 }) {
     this.exactAnalyzer = new ExactMatchAnalyzer();
-    this.semanticAnalyzer = new SemanticSimilarityAnalyzer(llm);
+    this.semanticAnalyzer = new SemanticSimilarityAnalyzer(embedder);
     this.defaultWeights = defaultWeights;
   }
 
@@ -46,7 +46,7 @@ export class CompositeAnalyzer implements ResponseAnalyzer {
 
       const [exactResult, semanticResult] = await Promise.all([
         this.exactAnalyzer.analyze(turn.response, groundTruth.expectedAnswer, groundTruth),
-        this.semanticAnalyzer.analyze(turn.response, groundTruth.expectedAnswer, groundTruth),
+        this.semanticAnalyzer.analyze(turn.response, groundTruth.expectedAnswer),
       ]);
 
       results.push(exactResult);
@@ -56,16 +56,11 @@ export class CompositeAnalyzer implements ResponseAnalyzer {
         exactResult.score * weights.exact +
         semanticResult.score * weights.semantic;
 
-      const judgeScore = turn.judgeVerdict?.totalScore;
-      const difference = judgeScore !== undefined ? compositeScore - judgeScore : undefined;
-
       results.push({
         strategy: "composite",
         score: compositeScore,
         groundTruth: groundTruth.expectedAnswer,
-        judgeScore,
-        difference,
-        isHumanNeed: difference !== undefined ? Math.abs(difference) > 0.3 : false,
+        isHumanNeed: compositeScore < 0.5,
       });
     }
 

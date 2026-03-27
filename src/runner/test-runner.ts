@@ -6,7 +6,9 @@ import type { QuestionnaireAgent } from "../types/questionnaire";
 import type { ResponseAnalyzer } from "../types/analyzer";
 import type { Reporter, ScenarioReport, TestReport, TestSummary } from "../types/report";
 import type { FrameworkConfig } from "../config/loader";
+import type { ScenarioDbMap } from "../config/loader";
 import type { TrackedLlmProvider } from "../adapters/llm/tracked-provider";
+import type { EmbeddingGenerator } from "../analyzer/embedding-generator";
 
 export interface TestRunnerDeps {
   model: ModelAdapter;
@@ -15,6 +17,7 @@ export interface TestRunnerDeps {
   analyzer: ResponseAnalyzer;
   reporters: Reporter[];
   trackedProviders: TrackedLlmProvider[];
+  embedder: EmbeddingGenerator;
 }
 
 export class TestRunner {
@@ -26,7 +29,11 @@ export class TestRunner {
     this.deps = deps;
   }
 
-  async run(scenarios: TestScenario[], runName?: string): Promise<TestReport> {
+  async run(
+    scenarios: TestScenario[],
+    scenarioDbMaps: Map<string, ScenarioDbMap>,
+    runName?: string
+  ): Promise<TestReport> {
     const startedAt = new Date();
 
     // Create test run in DB
@@ -40,10 +47,11 @@ export class TestRunner {
       },
     });
 
-    // Set test run ID on tracked providers for LLM call logging
+    // Set test run ID on tracked providers and embedder for LLM call logging
     for (const provider of this.deps.trackedProviders) {
       provider.setTestRunId(testRun.id);
     }
+    this.deps.embedder.setTestRunId(testRun.id);
 
     // Health check
     if (this.deps.model.healthCheck) {
@@ -61,8 +69,11 @@ export class TestRunner {
 
     for (let i = 0; i < scenarios.length; i++) {
       const scenario = scenarios[i];
+      const dbMap = scenarioDbMaps.get(scenario.id);
+      if (!dbMap) throw new Error(`No DB map found for scenario '${scenario.id}'`);
+
       console.log(`\n[${i + 1}/${scenarios.length}] Scenario: ${scenario.name} (${scenario.seedQuestions.length} seed + ${scenario.maxFollowUpRounds} follow-up rounds)`);
-      const report = await this.runScenario(testRun.id, scenario);
+      const report = await this.runScenario(testRun.id, scenario, dbMap);
       scenarioReports.push(report);
       console.log(`  -> ${report.status.toUpperCase()} (score: ${report.aggregate.toFixed(2)})`);
 
@@ -104,14 +115,13 @@ export class TestRunner {
 
   private async runScenario(
     testRunId: string,
-    scenario: TestScenario
+    scenario: TestScenario,
+    dbMap: ScenarioDbMap
   ): Promise<ScenarioReport> {
     const scenarioRun = await prisma.scenarioRun.create({
       data: {
         testRunId,
-        scenarioId: scenario.id,
-        scenarioName: scenario.name,
-        scenarioConfig: scenario as any,
+        scenarioId: dbMap.scenarioDbId,
         status: "running",
       },
     });
@@ -127,6 +137,12 @@ export class TestRunner {
       const seedTurns: ConversationTurn[] = [];
       const seedHistory: Message[] = [];
 
+      // Resolve DB id for this seed question
+      const seedQuestionDbId = dbMap.seedQuestionDbIds[seedQuestion.id];
+      if (!seedQuestionDbId) {
+        throw new Error(`No DB id found for seed question '${seedQuestion.id}'`);
+      }
+
       // Reset model state for each seed question's conversation
       if (this.deps.model.reset) {
         await this.deps.model.reset();
@@ -135,13 +151,13 @@ export class TestRunner {
       // -- Seed question --
       console.log(`\n  [Seed ${qi + 1}/${totalSeeds}] "${seedQuestion.question.slice(0, 60)}"`);
       roundCounter++;
-      const seedTurn = await this.askQuestion(
+      const { turn: seedTurn, conversationId: seedConvId } = await this.askQuestion(
         scenarioRun.id,
         seedQuestion.question,
         seedHistory,
         roundCounter,
         "seed",
-        seedQuestion.id
+        seedQuestionDbId
       );
 
       seedTurn.judgeVerdict = await this.deps.judge.evaluate(
@@ -149,8 +165,28 @@ export class TestRunner {
         [seedTurn],
         seedQuestion.groundTruth
       );
-      await this.saveJudgeVerdict(scenarioRun.id, seedTurn);
-      console.log(`    -> judge: ${seedTurn.judgeVerdict.totalScore.toFixed(2)} (${seedTurn.latencyMs}ms)`);
+      await this.saveJudgeVerdict(seedConvId, seedTurn);
+
+      // -- Analysis for this seed's response --
+      const seedAnalysis = await this.deps.analyzer.analyzeAll(
+        [seedTurn],
+        [seedQuestion.groundTruth]
+      );
+      for (const result of seedAnalysis) {
+        result.roundNumber = seedTurn.roundNumber;
+        await prisma.analysisResult.create({
+          data: {
+            conversationId: seedConvId,
+            strategy: result.strategy,
+            score: result.score,
+            groundTruth: result.groundTruth,
+            isHumanNeed: result.isHumanNeed,
+          },
+        });
+      }
+      const composite = seedAnalysis.find((r) => r.strategy === "composite");
+      const humanNeeded = seedAnalysis.some((r) => r.isHumanNeed);
+      console.log(`    -> judge: ${seedTurn.judgeVerdict.totalScore.toFixed(2)} | composite: ${composite?.score.toFixed(2) ?? "N/A"}${humanNeeded ? " [NEEDS HUMAN REVIEW]" : ""} (${seedTurn.latencyMs}ms)`);
 
       seedHistory.push(
         { role: "user", content: seedTurn.question },
@@ -170,7 +206,7 @@ export class TestRunner {
         );
 
         roundCounter++;
-        const followTurn = await this.askQuestion(
+        const { turn: followTurn, conversationId: followConvId } = await this.askQuestion(
           scenarioRun.id,
           followUpQuestion,
           seedHistory,
@@ -179,8 +215,34 @@ export class TestRunner {
         );
 
         followTurn.judgeVerdict = await this.deps.judge.evaluate(followTurn, seedTurns.concat(followTurn));
-        await this.saveJudgeVerdict(scenarioRun.id, followTurn);
-        console.log(`    Follow-up ${fi + 1}/${maxRounds}: "${followUpQuestion.slice(0, 50)}..." -> judge: ${followTurn.judgeVerdict.totalScore.toFixed(2)} (${followTurn.latencyMs}ms)`);
+        await this.saveJudgeVerdict(followConvId, followTurn);
+
+        // Semantic analysis for follow-up: compare response against seed's expected answer
+        const followSemanticVec = await this.deps.embedder.embed(followTurn.response, "semantic_analyzer");
+        const expectedVec = await this.getExpectedEmbedding(seedQuestionDbId);
+        const semanticScore = expectedVec
+          ? this.deps.embedder.cosineSimilarity(followSemanticVec, expectedVec)
+          : null;
+        if (semanticScore !== null) {
+          const followSemanticResult: import("../types/analyzer").AnalysisResult = {
+            strategy: "semantic",
+            score: Math.max(0, Math.min(1, semanticScore)),
+            isHumanNeed: semanticScore < 0.4,
+            roundNumber: followTurn.roundNumber,
+          };
+          allAnalysisResults.push(followSemanticResult);
+          await prisma.analysisResult.create({
+            data: {
+              conversationId: followConvId,
+              strategy: followSemanticResult.strategy,
+              score: followSemanticResult.score,
+              isHumanNeed: followSemanticResult.isHumanNeed,
+            },
+          });
+        }
+
+        const semanticLabel = semanticScore !== null ? ` | semantic: ${semanticScore.toFixed(2)}` : "";
+        console.log(`    Follow-up ${fi + 1}/${maxRounds}: "${followUpQuestion.slice(0, 50)}..." -> judge: ${followTurn.judgeVerdict.totalScore.toFixed(2)}${semanticLabel} (${followTurn.latencyMs}ms)`);
 
         seedHistory.push(
           { role: "user", content: followTurn.question },
@@ -190,35 +252,6 @@ export class TestRunner {
       }
 
       allTurns.push(...seedTurns);
-
-      // -- Analysis for this seed's response --
-      process.stdout.write(`    Analysis: `);
-      const seedAnalysis = await this.deps.analyzer.analyzeAll(
-        [seedTurns[0]],
-        [seedQuestion.groundTruth]
-      );
-      const analysisSummary: string[] = [];
-      for (const result of seedAnalysis) {
-        analysisSummary.push(`${result.strategy}: ${result.score.toFixed(2)}`);
-        const conversationRecord = await prisma.conversation.findFirst({
-          where: { scenarioRunId: scenarioRun.id, roundNumber: seedTurns[0].roundNumber },
-        });
-        if (conversationRecord) {
-          await prisma.analysisResult.create({
-            data: {
-              conversationId: conversationRecord.id,
-              strategy: result.strategy,
-              score: result.score,
-              groundTruth: result.groundTruth,
-              judgeScore: result.judgeScore,
-              difference: result.difference,
-              isHumanNeed: result.isHumanNeed,
-            },
-          });
-        }
-      }
-      const humanNeeded = seedAnalysis.some((r) => r.isHumanNeed);
-      console.log(`${analysisSummary.join(" | ")}${humanNeeded ? " [NEEDS HUMAN REVIEW]" : ""}`);
       allAnalysisResults.push(...seedAnalysis);
 
       if (this.config.execution.delayBetweenCallsMs) {
@@ -265,8 +298,8 @@ export class TestRunner {
     conversationHistory: Message[],
     roundNumber: number,
     turnType: "seed" | "follow_up",
-    seedQuestionId?: string
-  ): Promise<ConversationTurn> {
+    seedQuestionDbId?: string
+  ): Promise<{ turn: ConversationTurn; conversationId: string }> {
     const askedAt = new Date();
     const messageHistory: Message[] = [
       ...conversationHistory,
@@ -278,13 +311,13 @@ export class TestRunner {
     const latencyMs = Math.round(performance.now() - start);
     const respondedAt = new Date();
 
-    // Save to DB
-    await prisma.conversation.create({
+    // Save conversation to DB
+    const conversation = await prisma.conversation.create({
       data: {
         scenarioRunId,
         roundNumber,
         turnType,
-        seedQuestionId,
+        seedQuestionId: seedQuestionDbId,
         question,
         response: response.content,
         latencyMs,
@@ -293,33 +326,51 @@ export class TestRunner {
       },
     });
 
-    return {
+    // Store responseEmbedding for the response
+    const responseVec = await this.deps.embedder.embed(response.content, "response_embedding");
+    await prisma.$executeRaw`
+      UPDATE "Conversation"
+      SET "responseEmbedding" = ${`[${responseVec.join(",")}]`}::vector
+      WHERE id = ${conversation.id}
+    `;
+
+    const turn: ConversationTurn = {
       roundNumber,
       type: turnType,
       question,
       response: response.content,
       latencyMs,
     };
+
+    return { turn, conversationId: conversation.id };
   }
 
-  private async saveJudgeVerdict(scenarioRunId: string, turn: ConversationTurn): Promise<void> {
+  private async saveJudgeVerdict(conversationId: string, turn: ConversationTurn): Promise<void> {
     if (!turn.judgeVerdict) return;
-    const conversationRecord = await prisma.conversation.findFirst({
-      where: { scenarioRunId, roundNumber: turn.roundNumber },
+    await prisma.judgeVerdict.create({
+      data: {
+        conversationId,
+        completenessScore: turn.judgeVerdict.completenessScore,
+        coherenceScore: turn.judgeVerdict.coherenceScore,
+        totalScore: turn.judgeVerdict.totalScore,
+        passed: turn.judgeVerdict.passed,
+        reasoning: turn.judgeVerdict.reasoning,
+        rawLlmResponse: turn.judgeVerdict.rawLlmResponse,
+        judgeModel: this.config.llm.model,
+      },
     });
-    if (conversationRecord) {
-      await prisma.judgeVerdict.create({
-        data: {
-          conversationId: conversationRecord.id,
-          accuracyScore: turn.judgeVerdict.accuracyScore,
-          relevanceScore: turn.judgeVerdict.relevanceScore,
-          totalScore: turn.judgeVerdict.totalScore,
-          reasoning: turn.judgeVerdict.reasoning,
-          rawResponse: turn.judgeVerdict.rawResponse,
-          judgeModel: this.config.llm.model,
-        },
-      });
-    }
+  }
+
+  private async getExpectedEmbedding(seedQuestionDbId: string): Promise<number[] | null> {
+    const rows = await prisma.$queryRaw<{ embedding: string }[]>`
+      SELECT "expectedEmbedding"::text AS embedding
+      FROM "SeedQuestion"
+      WHERE id = ${seedQuestionDbId}
+        AND "expectedEmbedding" IS NOT NULL
+    `;
+    if (rows.length === 0 || !rows[0].embedding) return null;
+    // Parse "[0.1,0.2,...]" string into number[]
+    return rows[0].embedding.slice(1, -1).split(",").map(Number);
   }
 
   private buildSummary(scenarioReports: ScenarioReport[]): TestSummary {

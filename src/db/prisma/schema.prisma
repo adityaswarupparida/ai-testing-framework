@@ -7,6 +7,42 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── Scenario Registry ───────────────────────────────────────────────────────
+// Scenarios and seed questions are upserted from JSON on first load.
+// expectedEmbedding is computed once and reused across all test runs.
+
+model Scenario {
+  id                String         @id @default(cuid())
+  scenarioId        String         @unique  // matches "id" in scenario JSON
+  name              String
+  context           String
+  maxFollowUpRounds Int
+  seedQuestions     SeedQuestion[]
+  scenarioRuns      ScenarioRun[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+model SeedQuestion {
+  id                   String                      @id @default(cuid())
+  scenarioId           String
+  scenario             Scenario                    @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  questionId           String                      // matches "id" in scenario JSON
+  question             String
+  expectedAnswer       String
+  requiredKeywords     String[]
+  acceptableVariations String[]
+  expectedEmbedding    Unsupported("vector(3072)")?  // embedded once, reused across runs
+  conversations        Conversation[]
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  @@unique([scenarioId, questionId])
+  @@index([scenarioId])
+}
+
+// ─── Test Runs ────────────────────────────────────────────────────────────────
+
 model TestRun {
   id             String        @id @default(cuid())
   runName        String?
@@ -22,85 +58,87 @@ model TestRun {
 }
 
 model ScenarioRun {
-  id             String         @id @default(cuid())
-  testRunId      String
-  testRun        TestRun        @relation(fields: [testRunId], references: [id], onDelete: Cascade)
-  scenarioId     String
-  scenarioName   String
-  scenarioConfig Json
-  status         String         @default("running") // running | passed | failed
-  totalRounds    Int            @default(0)
-  aggregate      Float?
-  startedAt      DateTime       @default(now())
-  completedAt    DateTime?
-  conversations  Conversation[]
-  createdAt      DateTime       @default(now())
+  id            String         @id @default(cuid())
+  testRunId     String
+  testRun       TestRun        @relation(fields: [testRunId], references: [id], onDelete: Cascade)
+  scenarioId    String
+  scenario      Scenario       @relation(fields: [scenarioId], references: [id])
+  status        String         @default("running") // running | passed | failed
+  totalRounds   Int            @default(0)
+  aggregate     Float?
+  startedAt     DateTime       @default(now())
+  completedAt   DateTime?
+  conversations Conversation[]
+  createdAt     DateTime       @default(now())
 
   @@index([testRunId])
+  @@index([scenarioId])
 }
 
 model Conversation {
-  id              String           @id @default(cuid())
-  scenarioRunId   String
-  scenarioRun     ScenarioRun      @relation(fields: [scenarioRunId], references: [id], onDelete: Cascade)
-  roundNumber     Int
-  turnType        String           // seed | follow_up
-  seedQuestionId  String?
-  question        String
-  response        String
-  latencyMs       Int?
-  askedAt         DateTime
-  respondedAt     DateTime
-  judgeVerdict    JudgeVerdict?
-  analysisResults AnalysisResult[]
-  createdAt       DateTime         @default(now())
+  id                String                      @id @default(cuid())
+  scenarioRunId     String
+  scenarioRun       ScenarioRun                 @relation(fields: [scenarioRunId], references: [id], onDelete: Cascade)
+  seedQuestionId    String?
+  seedQuestion      SeedQuestion?               @relation(fields: [seedQuestionId], references: [id])
+  roundNumber       Int
+  turnType          String                      // seed | follow_up
+  question          String
+  response          String
+  latencyMs         Int?
+  askedAt           DateTime
+  respondedAt       DateTime
+  responseEmbedding Unsupported("vector(3072)")? // embedded at runtime for each response
+  judgeVerdict      JudgeVerdict?
+  analysisResults   AnalysisResult[]
+  createdAt         DateTime                    @default(now())
 
   @@index([scenarioRunId])
   @@index([scenarioRunId, roundNumber])
+  @@index([seedQuestionId])
 }
 
 model JudgeVerdict {
-  id               String       @id @default(cuid())
-  conversationId   String       @unique
-  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  accuracyScore    Float
-  relevanceScore   Float
-  totalScore       Float
-  reasoning        String
-  rawResponse      String?
-  judgeModel       String?
-  createdAt        DateTime     @default(now())
+  id                String       @id @default(cuid())
+  conversationId    String       @unique
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  completenessScore Float        // did it address everything asked? (universal)
+  coherenceScore    Float        // is it consistent with the conversation? (universal)
+  totalScore        Float        // average of completeness + coherence
+  passed            Boolean
+  reasoning         String
+  rawLlmResponse    String?
+  judgeModel        String?
+  createdAt         DateTime     @default(now())
 }
 
 model AnalysisResult {
-  id               String       @id @default(cuid())
-  conversationId   String
-  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  strategy         String       // exact | semantic
-  score            Float
-  groundTruth      String?
-  judgeScore       Float?
-  difference       Float?
-  isHumanNeed      Boolean      @default(false)
-  createdAt        DateTime     @default(now())
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  strategy       String       // exact | semantic | composite
+  score          Float
+  groundTruth    String?
+  isHumanNeed    Boolean      @default(false)
+  createdAt      DateTime     @default(now())
 
   @@index([conversationId])
   @@index([strategy])
 }
 
 model LlmCall {
-  id             String   @id @default(cuid())
-  testRunId      String
-  testRun        TestRun  @relation(fields: [testRunId], references: [id], onDelete: Cascade)
-  caller         String   // judge | questionnaire | semantic_analyzer
-  provider       String   // gemini
-  model          String
-  inputMessages  Json
-  outputContent  String
-  inputTokens    Int?
-  outputTokens   Int?
-  latencyMs      Int?
-  createdAt      DateTime @default(now())
+  id            String   @id @default(cuid())
+  testRunId     String
+  testRun       TestRun  @relation(fields: [testRunId], references: [id], onDelete: Cascade)
+  caller        String   // judge | questionnaire | semantic_analyzer | embedding
+  provider      String   // gemini
+  model         String
+  inputMessages Json
+  outputContent String
+  inputTokens   Int?
+  outputTokens  Int?
+  latencyMs     Int?
+  createdAt     DateTime @default(now())
 
   @@index([testRunId])
   @@index([caller])
