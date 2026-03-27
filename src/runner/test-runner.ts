@@ -68,7 +68,7 @@ export class TestRunner {
     const scenarioReports: ScenarioReport[] = [];
 
     for (let i = 0; i < scenarios.length; i++) {
-      const scenario = scenarios[i];
+      const scenario = scenarios[i]!;
       const dbMap = scenarioDbMaps.get(scenario.id);
       if (!dbMap) throw new Error(`No DB map found for scenario '${scenario.id}'`);
 
@@ -133,7 +133,7 @@ export class TestRunner {
     let roundCounter = 0;
 
     for (let qi = 0; qi < totalSeeds; qi++) {
-      const seedQuestion = scenario.seedQuestions[qi];
+      const seedQuestion = scenario.seedQuestions[qi]!;
       const seedTurns: ConversationTurn[] = [];
       const seedHistory: Message[] = [];
 
@@ -368,9 +368,9 @@ export class TestRunner {
       WHERE id = ${seedQuestionDbId}
         AND "expectedEmbedding" IS NOT NULL
     `;
-    if (rows.length === 0 || !rows[0].embedding) return null;
+    if (rows.length === 0 || !rows[0]?.embedding) return null;
     // Parse "[0.1,0.2,...]" string into number[]
-    return rows[0].embedding.slice(1, -1).split(",").map(Number);
+    return rows[0]!.embedding.slice(1, -1).split(",").map(Number);
   }
 
   private buildSummary(scenarioReports: ScenarioReport[]): TestSummary {

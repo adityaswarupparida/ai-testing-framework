@@ -8,7 +8,7 @@ describe("FunctionModelAdapter", () => {
     const adapter = new FunctionModelAdapter(
       "test-model",
       async (history: Message[]) => {
-        const lastMsg = history[history.length - 1];
+        const lastMsg = history[history.length - 1]!;
         return `Echo: ${lastMsg.content}`;
       }
     );

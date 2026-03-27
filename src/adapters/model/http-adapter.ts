@@ -13,6 +13,9 @@ export class HttpModelAdapter implements ModelAdapter {
 
   async send(conversationHistory: Message[]): Promise<Message> {
     const lastMessage = conversationHistory[conversationHistory.length - 1];
+    if (!lastMessage) {
+      throw new Error("Cannot send empty conversation history");
+    }
 
     const body: Record<string, string> = {
       message: lastMessage.content,

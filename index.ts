@@ -24,10 +24,10 @@ async function main() {
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "--config":
-        configPath = args[++i];
+        configPath = args[++i] ?? configPath;
         break;
       case "--scenario":
-        scenarioPaths.push(args[++i]);
+        if (args[i + 1]) scenarioPaths.push(args[++i]!);
         break;
       case "--name":
         runName = args[++i];
