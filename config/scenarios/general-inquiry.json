@@ -1,0 +1,53 @@
+{
+  "id": "general-inquiry",
+  "name": "General Clinic Inquiries and Appointments",
+  "context": "Patient is asking general questions about HealthFirst Medical Clinic. Phone: +91 80 1234 5678, Email: reception@healthfirstclinic.in. Existing appointments: Arjun Mehta with Dr. Priya Sharma on 2026-03-28 at 09:00 (confirmed), Sneha Reddy with Dr. Rahul Verma on 2026-03-28 at 10:00 (confirmed), Karan Singh with Dr. Vikram Patel on 2026-03-30 at 15:00 (confirmed). Doctors: Dr. Priya Sharma (General Physician), Dr. Rahul Verma (Pediatrician), Dr. Anjali Nair (Dermatologist), Dr. Vikram Patel (Orthopedic Surgeon), Dr. Meera Iyer (Gynecologist).",
+  "maxFollowUpRounds": 2,
+  "seedQuestions": [
+    {
+      "id": "gen-1",
+      "question": "How can I contact the clinic?",
+      "groundTruth": {
+        "expectedAnswer": "You can reach us by phone at +91 80 1234 5678 or email at reception@healthfirstclinic.in.",
+        "requiredKeywords": ["1234 5678"],
+        "acceptableVariations": ["Call us at +91 80 1234 5678 or email reception@healthfirstclinic.in"]
+      }
+    },
+    {
+      "id": "gen-2",
+      "question": "What specialists are available at your clinic?",
+      "groundTruth": {
+        "expectedAnswer": "We have the following specialists: Dr. Priya Sharma (General Physician), Dr. Rahul Verma (Pediatrician), Dr. Anjali Nair (Dermatologist), Dr. Vikram Patel (Orthopedic Surgeon), and Dr. Meera Iyer (Gynecologist).",
+        "requiredKeywords": ["general physician", "pediatrician", "dermatologist", "orthopedic", "gynecologist"],
+        "acceptableVariations": ["Our specialists include a general physician, pediatrician, dermatologist, orthopedic surgeon, and gynecologist"]
+      }
+    },
+    {
+      "id": "gen-3",
+      "question": "I am Arjun Mehta. Do I have any upcoming appointments?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, you have a confirmed appointment with Dr. Priya Sharma on March 28, 2026 at 9:00 AM.",
+        "requiredKeywords": ["priya sharma", "march 28", "confirmed"],
+        "acceptableVariations": ["Your appointment with Dr. Sharma is on 2026-03-28 at 09:00"]
+      }
+    },
+    {
+      "id": "gen-4",
+      "question": "Can I book an appointment with the orthopedic surgeon?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Dr. Vikram Patel is our Orthopedic Surgeon. He is available on Monday, Tuesday, Thursday, and Friday. Available slots are at 10:00 AM, 11:00 AM, 3:00 PM, 4:00 PM, and 5:00 PM.",
+        "requiredKeywords": ["vikram patel", "orthopedic"],
+        "acceptableVariations": ["Our orthopedic surgeon is Dr. Vikram Patel, available Mon/Tue/Thu/Fri"]
+      }
+    },
+    {
+      "id": "gen-5",
+      "question": "What is the name of your clinic?",
+      "groundTruth": {
+        "expectedAnswer": "Our clinic is called HealthFirst Medical Clinic.",
+        "requiredKeywords": ["healthfirst"],
+        "acceptableVariations": ["This is HealthFirst Medical Clinic", "The clinic name is HealthFirst Medical Clinic"]
+      }
+    }
+  ]
+}

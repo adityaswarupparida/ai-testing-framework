@@ -1,0 +1,71 @@
+{
+  "id": "clinic-timings",
+  "name": "Clinic Timings, Doctors and Availability",
+  "context": "Patient is inquiring about HealthFirst Medical Clinic (42 Wellness Avenue, Bengaluru, Karnataka 560001). Phone: +91 80 1234 5678, Email: reception@healthfirstclinic.in, Emergency: +91 80 1234 9999. Hours: Weekdays 8:00 AM – 8:00 PM, Saturday 9:00 AM – 5:00 PM, Sunday 10:00 AM – 2:00 PM (Emergency only). Doctors: Dr. Priya Sharma (General Physician, Mon-Fri, slots 09-11,14-16), Dr. Rahul Verma (Pediatrician, Mon/Wed/Fri, slots 10-11,14-15), Dr. Anjali Nair (Dermatologist, Tue/Thu/Sat, slots 09-12), Dr. Vikram Patel (Orthopedic Surgeon, Mon/Tue/Thu/Fri, slots 10-11,15-17), Dr. Meera Iyer (Gynecologist, Mon/Wed/Fri/Sat, slots 09-11,14-15).",
+  "maxFollowUpRounds": 3,
+  "seedQuestions": [
+    {
+      "id": "time-1",
+      "question": "What are your clinic hours?",
+      "groundTruth": {
+        "expectedAnswer": "HealthFirst Medical Clinic is open on weekdays from 8:00 AM to 8:00 PM, Saturdays from 9:00 AM to 5:00 PM, and Sundays from 10:00 AM to 2:00 PM for emergencies only.",
+        "requiredKeywords": ["8:00", "weekday", "saturday", "sunday"],
+        "acceptableVariations": ["We are open weekdays 8 AM to 8 PM, Saturday 9 AM to 5 PM, Sunday 10 AM to 2 PM emergency only"]
+      }
+    },
+    {
+      "id": "time-2",
+      "question": "Is the clinic open on Sundays?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, but only for emergencies. Sunday hours are 10:00 AM to 2:00 PM.",
+        "requiredKeywords": ["sunday", "emergency", "10"],
+        "acceptableVariations": ["On Sundays we are open from 10 AM to 2 PM for emergencies only", "Sunday is emergency only, 10 AM to 2 PM"]
+      }
+    },
+    {
+      "id": "time-3",
+      "question": "When is Dr. Priya Sharma available?",
+      "groundTruth": {
+        "expectedAnswer": "Dr. Priya Sharma (General Physician) is available Monday through Friday. Her available slots are at 9:00, 10:00, 11:00 AM and 2:00, 3:00, 4:00 PM.",
+        "requiredKeywords": ["monday", "friday", "priya sharma"],
+        "acceptableVariations": ["Dr. Sharma is available Mon to Fri with morning and afternoon slots"]
+      }
+    },
+    {
+      "id": "time-4",
+      "question": "Which doctor should I see for a skin problem?",
+      "groundTruth": {
+        "expectedAnswer": "For skin problems, you should see Dr. Anjali Nair, our Dermatologist. She is available on Tuesday, Thursday, and Saturday from 9:00 AM to 12:00 PM.",
+        "requiredKeywords": ["anjali nair", "dermatologist"],
+        "acceptableVariations": ["Dr. Anjali Nair is our dermatologist, available Tue/Thu/Sat"]
+      }
+    },
+    {
+      "id": "time-5",
+      "question": "I need to see a pediatrician for my child. Who is available and when?",
+      "groundTruth": {
+        "expectedAnswer": "Dr. Rahul Verma is our Pediatrician. He is available on Monday, Wednesday, and Friday. Available slots are at 10:00 AM, 11:00 AM, 2:00 PM, and 3:00 PM.",
+        "requiredKeywords": ["rahul verma", "pediatrician"],
+        "acceptableVariations": ["Our pediatrician Dr. Rahul Verma is available Mon/Wed/Fri"]
+      }
+    },
+    {
+      "id": "time-6",
+      "question": "What is the clinic's emergency number?",
+      "groundTruth": {
+        "expectedAnswer": "Our emergency number is +91 80 1234 9999.",
+        "requiredKeywords": ["1234 9999"],
+        "acceptableVariations": ["The emergency line is +91 80 1234 9999", "For emergencies call +91 80 1234 9999"]
+      }
+    },
+    {
+      "id": "time-7",
+      "question": "What is the clinic's address?",
+      "groundTruth": {
+        "expectedAnswer": "HealthFirst Medical Clinic is located at 42 Wellness Avenue, Bengaluru, Karnataka 560001.",
+        "requiredKeywords": ["42 wellness avenue", "bengaluru"],
+        "acceptableVariations": ["We are at 42 Wellness Avenue, Bengaluru, Karnataka 560001"]
+      }
+    }
+  ]
+}

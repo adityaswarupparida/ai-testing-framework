@@ -1,0 +1,125 @@
+{
+  "id": "medicine-availability",
+  "name": "Medicine Availability Inquiries",
+  "context": "Patient is asking about availability, pricing, and prescription requirements of medicines at HealthFirst Medical Clinic pharmacy. Stock: Paracetamol 500mg (₹30, OTC, in stock), Amoxicillin 250mg (₹85, Rx, in stock), Cetirizine 10mg (₹25, OTC, in stock), Metformin 500mg (₹45, Rx, out of stock), Omeprazole 20mg (₹60, Rx, in stock), Ibuprofen 400mg (₹35, OTC, in stock), Azithromycin 500mg (₹120, Rx, in stock), Vitamin D3 1000IU (₹150, OTC, in stock), Cough Syrup Benadryl (₹95, OTC, out of stock), Insulin Glargine (₹850, Rx, in stock).",
+  "maxFollowUpRounds": 2,
+  "seedQuestions": [
+    {
+      "id": "med-1",
+      "question": "Is Paracetamol available at your clinic?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Paracetamol 500mg is available at our clinic. It costs ₹30 and does not require a prescription.",
+        "requiredKeywords": ["yes", "paracetamol", "available"],
+        "acceptableVariations": ["We have Paracetamol in stock", "Paracetamol 500mg is available"]
+      }
+    },
+    {
+      "id": "med-2",
+      "question": "Do you have Amoxicillin?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Amoxicillin 250mg is available. It costs ₹85 and requires a prescription.",
+        "requiredKeywords": ["yes", "amoxicillin", "prescription"],
+        "acceptableVariations": ["Amoxicillin is in stock but needs a prescription", "We have Amoxicillin, you'll need a prescription"]
+      }
+    },
+    {
+      "id": "med-3",
+      "question": "Can I get Metformin 500mg?",
+      "groundTruth": {
+        "expectedAnswer": "Sorry, Metformin 500mg is currently out of stock.",
+        "requiredKeywords": ["out of stock"],
+        "acceptableVariations": ["Metformin is not available right now", "We don't have Metformin in stock currently"]
+      }
+    },
+    {
+      "id": "med-4",
+      "question": "Is Vitamin D3 available and how much does it cost?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Vitamin D3 1000IU is available. It costs ₹150 and does not require a prescription.",
+        "requiredKeywords": ["yes", "vitamin d3", "150"],
+        "acceptableVariations": ["Vitamin D3 is in stock at ₹150", "We have Vitamin D3 for ₹150"]
+      }
+    },
+    {
+      "id": "med-5",
+      "question": "Do I need a prescription for Cetirizine?",
+      "groundTruth": {
+        "expectedAnswer": "No, Cetirizine 10mg does not require a prescription. It is available for ₹25.",
+        "requiredKeywords": ["no", "prescription"],
+        "acceptableVariations": ["Cetirizine is over the counter", "No prescription needed for Cetirizine"]
+      }
+    },
+    {
+      "id": "med-6",
+      "question": "Is Benadryl cough syrup available?",
+      "groundTruth": {
+        "expectedAnswer": "Sorry, Benadryl Cough Syrup is currently out of stock.",
+        "requiredKeywords": ["out of stock"],
+        "acceptableVariations": ["Benadryl is not available right now", "Cough syrup is out of stock"]
+      }
+    },
+    {
+      "id": "med-7",
+      "question": "How much does Insulin Glargine cost? Do I need a prescription?",
+      "groundTruth": {
+        "expectedAnswer": "Insulin Glargine is available at ₹850. Yes, it requires a prescription.",
+        "requiredKeywords": ["850", "prescription"],
+        "acceptableVariations": ["Insulin Glargine costs ₹850 and needs a prescription"]
+      }
+    },
+    {
+      "id": "med-8",
+      "question": "Is Vitamin B12 available at your clinic?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Vitamin B12 is available at our clinic.",
+        "requiredKeywords": ["yes", "vitamin b12", "available"],
+        "acceptableVariations": ["We do have Vitamin B12 in stock", "Vitamin B12 is available"]
+      }
+    },
+    {
+      "id": "med-9",
+      "question": "Do you have Flucold tablets?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, we have Flucold tablets available.",
+        "requiredKeywords": ["yes", "flucold"],
+        "acceptableVariations": ["Flucold is available", "We stock Flucold tablets"]
+      }
+    },
+    {
+      "id": "med-10",
+      "question": "Can I get Dolo 650 here?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Dolo 650 is available at our clinic.",
+        "requiredKeywords": ["yes", "dolo"],
+        "acceptableVariations": ["We have Dolo 650", "Dolo 650 is available"]
+      }
+    },
+    {
+      "id": "med-11",
+      "question": "How much does Ibuprofen cost?",
+      "groundTruth": {
+        "expectedAnswer": "Ibuprofen 400mg is available for ₹35. It does not require a prescription.",
+        "requiredKeywords": ["35", "ibuprofen"],
+        "acceptableVariations": ["Ibuprofen costs ₹35", "Ibuprofen 400mg is ₹35, no prescription needed"]
+      }
+    },
+    {
+      "id": "med-12",
+      "question": "Is Azithromycin available? Do I need a prescription for it?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Azithromycin 500mg is available at ₹120. It requires a prescription.",
+        "requiredKeywords": ["yes", "azithromycin", "prescription"],
+        "acceptableVariations": ["Azithromycin is in stock at ₹120, prescription required"]
+      }
+    },
+    {
+      "id": "med-13",
+      "question": "Do you have Omeprazole?",
+      "groundTruth": {
+        "expectedAnswer": "Yes, Omeprazole 20mg is available at ₹60. It requires a prescription.",
+        "requiredKeywords": ["yes", "omeprazole", "prescription"],
+        "acceptableVariations": ["Omeprazole is in stock, you'll need a prescription"]
+      }
+    }
+  ]
+}

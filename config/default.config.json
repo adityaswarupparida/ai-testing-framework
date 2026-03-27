@@ -1,0 +1,32 @@
+{
+  "sut": {
+    "adapterType": "http",
+    "name": "Medical Clinic Receptionist v1",
+    "baseUrl": "http://localhost:3000"
+  },
+  "llm": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "temperature": 0.3
+  },
+  "judge": {
+    "passThreshold": 0.6
+  },
+  "questionnaire": {
+    "maxFollowUpRounds": 2,
+    "personaPrompt": "You are a patient calling a medical clinic. Ask natural follow-up questions based on the receptionist's previous answers. Stay within the medical clinic context."
+  },
+  "analyzer": {
+    "weights": {
+      "exact": 0.7,
+      "semantic": 0.3
+    }
+  },
+  "execution": {
+    "delayBetweenCallsMs": 500
+  },
+  "reporting": {
+    "outputFormats": ["json", "console"],
+    "outputDir": "./reports"
+  }
+}
