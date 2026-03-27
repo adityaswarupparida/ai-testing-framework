@@ -14,9 +14,11 @@ export class SemanticSimilarityAnalyzer implements AnalysisStrategy {
       this.embedder.embed(response, "semantic_analyzer"),
       this.embedder.embed(expected, "semantic_analyzer"),
     ]);
+    return this.analyzeWithVectors(responseVec, expectedVec, expected);
+  }
 
+  analyzeWithVectors(responseVec: number[], expectedVec: number[], expected?: string): AnalysisResult {
     const score = this.embedder.cosineSimilarity(responseVec, expectedVec);
-
     return {
       strategy: "semantic",
       score: Math.max(0, Math.min(1, score)),

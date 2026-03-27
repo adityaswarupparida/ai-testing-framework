@@ -29,7 +29,8 @@ export class CompositeAnalyzer implements ResponseAnalyzer {
 
   async analyzeAll(
     turns: ConversationTurn[],
-    groundTruths: GroundTruth[]
+    groundTruths: GroundTruth[],
+    precomputedVectors?: { responseVec: number[]; expectedVec: number[] }
   ): Promise<AnalysisResult[]> {
     const results: AnalysisResult[] = [];
 
@@ -44,10 +45,25 @@ export class CompositeAnalyzer implements ResponseAnalyzer {
 
       const weights = this.computeWeights(groundTruth);
 
-      const [exactResult, semanticResult] = await Promise.all([
-        this.exactAnalyzer.analyze(turn.response, groundTruth.expectedAnswer, groundTruth),
-        this.semanticAnalyzer.analyze(turn.response, groundTruth.expectedAnswer),
-      ]);
+      let exactResult: AnalysisResult;
+      let semanticResult: AnalysisResult;
+
+      if (precomputedVectors) {
+        // Use pre-computed vectors — no embed calls needed
+        [exactResult] = await Promise.all([
+          this.exactAnalyzer.analyze(turn.response, groundTruth.expectedAnswer, groundTruth),
+        ]);
+        semanticResult = this.semanticAnalyzer.analyzeWithVectors(
+          precomputedVectors.responseVec,
+          precomputedVectors.expectedVec,
+          groundTruth.expectedAnswer
+        );
+      } else {
+        [exactResult, semanticResult] = await Promise.all([
+          this.exactAnalyzer.analyze(turn.response, groundTruth.expectedAnswer, groundTruth),
+          this.semanticAnalyzer.analyze(turn.response, groundTruth.expectedAnswer),
+        ]);
+      }
 
       results.push(exactResult);
       results.push(semanticResult);

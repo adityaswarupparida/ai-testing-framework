@@ -15,6 +15,7 @@ export interface AnalysisStrategy {
 export interface ResponseAnalyzer {
   analyzeAll(
     turns: ConversationTurn[],
-    groundTruths: GroundTruth[]
+    groundTruths: GroundTruth[],
+    precomputedVectors?: { responseVec: number[]; expectedVec: number[] }
   ): Promise<AnalysisResult[]>;
 }

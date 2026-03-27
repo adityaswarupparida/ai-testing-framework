@@ -151,7 +151,7 @@ export class TestRunner {
       // -- Seed question --
       console.log(`\n  [Seed ${qi + 1}/${totalSeeds}] "${seedQuestion.question.slice(0, 60)}"`);
       roundCounter++;
-      const { turn: seedTurn, conversationId: seedConvId } = await this.askQuestion(
+      const { turn: seedTurn, conversationId: seedConvId, responseVec: seedResponseVec } = await this.askQuestion(
         scenarioRun.id,
         seedQuestion.question,
         seedHistory,
@@ -168,9 +168,15 @@ export class TestRunner {
       await this.saveJudgeVerdict(seedConvId, seedTurn);
 
       // -- Analysis for this seed's response --
+      // Fetch stored expectedEmbedding from DB — avoids re-embedding the expected answer
+      const expectedVec = await this.getExpectedEmbedding(seedQuestionDbId);
+      const precomputedVectors = expectedVec
+        ? { responseVec: seedResponseVec, expectedVec }
+        : undefined;
       const seedAnalysis = await this.deps.analyzer.analyzeAll(
         [seedTurn],
-        [seedQuestion.groundTruth]
+        [seedQuestion.groundTruth],
+        precomputedVectors
       );
       for (const result of seedAnalysis) {
         result.roundNumber = seedTurn.roundNumber;
@@ -206,7 +212,7 @@ export class TestRunner {
         );
 
         roundCounter++;
-        const { turn: followTurn, conversationId: followConvId } = await this.askQuestion(
+        const { turn: followTurn, conversationId: followConvId, responseVec: followResponseVec } = await this.askQuestion(
           scenarioRun.id,
           followUpQuestion,
           seedHistory,
@@ -217,11 +223,9 @@ export class TestRunner {
         followTurn.judgeVerdict = await this.deps.judge.evaluate(followTurn, seedTurns.concat(followTurn));
         await this.saveJudgeVerdict(followConvId, followTurn);
 
-        // Semantic analysis for follow-up: compare response against seed's expected answer
-        const followSemanticVec = await this.deps.embedder.embed(followTurn.response, "semantic_analyzer");
-        const expectedVec = await this.getExpectedEmbedding(seedQuestionDbId);
+        // Semantic analysis for follow-up: reuse expectedVec already fetched for this seed
         const semanticScore = expectedVec
-          ? this.deps.embedder.cosineSimilarity(followSemanticVec, expectedVec)
+          ? this.deps.embedder.cosineSimilarity(followResponseVec, expectedVec)
           : null;
         if (semanticScore !== null) {
           const followSemanticResult: import("../types/analyzer").AnalysisResult = {
@@ -299,7 +303,7 @@ export class TestRunner {
     roundNumber: number,
     turnType: "seed" | "follow_up",
     seedQuestionDbId?: string
-  ): Promise<{ turn: ConversationTurn; conversationId: string }> {
+  ): Promise<{ turn: ConversationTurn; conversationId: string; responseVec: number[] }> {
     const askedAt = new Date();
     const messageHistory: Message[] = [
       ...conversationHistory,
@@ -342,7 +346,7 @@ export class TestRunner {
       latencyMs,
     };
 
-    return { turn, conversationId: conversation.id };
+    return { turn, conversationId: conversation.id, responseVec };
   }
 
   private async saveJudgeVerdict(conversationId: string, turn: ConversationTurn): Promise<void> {
