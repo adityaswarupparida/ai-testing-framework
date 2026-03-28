@@ -201,6 +201,8 @@ export class TestRunner {
       seedTurns.push(seedTurn);
 
       // -- Follow-up rounds for this seed --
+      let prevResponseVec = seedResponseVec; // track previous response vec for off-topic attribution
+
       for (let fi = 0; fi < maxRounds; fi++) {
         if (this.config.execution.delayBetweenCallsMs) {
           await Bun.sleep(this.config.execution.delayBetweenCallsMs);
@@ -223,31 +225,55 @@ export class TestRunner {
         followTurn.judgeVerdict = await this.deps.judge.evaluate(followTurn, seedTurns.concat(followTurn));
         await this.saveJudgeVerdict(followConvId, followTurn);
 
-        // Semantic analysis for follow-up: reuse expectedVec already fetched for this seed
-        const semanticScore = expectedVec
-          ? this.deps.embedder.cosineSimilarity(followResponseVec, expectedVec)
-          : null;
-        if (semanticScore !== null) {
-          const followSemanticResult: import("../types/analyzer").AnalysisResult = {
-            strategy: "semantic",
-            score: Math.max(0, Math.min(1, semanticScore)),
-            isHumanNeed: semanticScore < 0.4,
-            roundNumber: followTurn.roundNumber,
-          };
-          allAnalysisResults.push(followSemanticResult);
-          await prisma.analysisResult.create({
-            data: {
-              conversationId: followConvId,
-              strategy: followSemanticResult.strategy,
-              score: followSemanticResult.score,
-              isHumanNeed: followSemanticResult.isHumanNeed,
-            },
-          });
+        // Embed follow-up question and find nearest seed via questionEmbedding
+        const followUpQuestionVec = await this.deps.embedder.embed(followUpQuestion, "semantic_analyzer");
+        const nearest = await this.findNearestSeedQuestion(followUpQuestionVec, dbMap.scenarioDbId);
+
+        const OFF_TOPIC_THRESHOLD = 0.5;
+        const ATTRIBUTION_MODEL_THRESHOLD = 0.6;
+        const ATTRIBUTION_UNCLEAR_THRESHOLD = 0.4;
+
+        let semanticLabel = "";
+        if (!nearest || nearest.similarity < OFF_TOPIC_THRESHOLD) {
+          // Off-topic — determine attribution via prevResponse similarity
+          const prevResponseSimilarity = this.deps.embedder.cosineSimilarity(followUpQuestionVec, prevResponseVec);
+          let attribution: string;
+          if (prevResponseSimilarity > ATTRIBUTION_MODEL_THRESHOLD) {
+            attribution = "[OFF TOPIC - MODEL]";
+          } else if (prevResponseSimilarity < ATTRIBUTION_UNCLEAR_THRESHOLD) {
+            attribution = "[OFF TOPIC - QUESTIONNAIRE]";
+          } else {
+            attribution = "[OFF TOPIC - UNCLEAR] [NEEDS HUMAN REVIEW]";
+          }
+          semanticLabel = ` ${attribution}`;
+        } else {
+          // On-topic — compute semantic score against matched seed's expectedEmbedding
+          const matchedExpectedVec = nearest.expectedEmbedding;
+          if (matchedExpectedVec) {
+            const semanticScore = this.deps.embedder.cosineSimilarity(followResponseVec, matchedExpectedVec);
+            const clampedScore = Math.max(0, Math.min(1, semanticScore));
+            const followSemanticResult: import("../types/analyzer").AnalysisResult = {
+              strategy: "semantic",
+              score: clampedScore,
+              isHumanNeed: clampedScore < 0.4,
+              roundNumber: followTurn.roundNumber,
+            };
+            allAnalysisResults.push(followSemanticResult);
+            await prisma.analysisResult.create({
+              data: {
+                conversationId: followConvId,
+                strategy: followSemanticResult.strategy,
+                score: followSemanticResult.score,
+                isHumanNeed: followSemanticResult.isHumanNeed,
+              },
+            });
+            semanticLabel = ` | semantic: ${clampedScore.toFixed(2)}`;
+          }
         }
 
-        const semanticLabel = semanticScore !== null ? ` | semantic: ${semanticScore.toFixed(2)}` : "";
         console.log(`    Follow-up ${fi + 1}/${maxRounds}: "${followUpQuestion.slice(0, 50)}..." -> judge: ${followTurn.judgeVerdict.totalScore.toFixed(2)}${semanticLabel} (${followTurn.latencyMs}ms)`);
 
+        prevResponseVec = followResponseVec;
         seedHistory.push(
           { role: "user", content: followTurn.question },
           { role: "assistant", content: followTurn.response }
@@ -363,6 +389,31 @@ export class TestRunner {
         judgeModel: this.config.llm.model,
       },
     });
+  }
+
+  private async findNearestSeedQuestion(
+    followUpQuestionVec: number[],
+    scenarioDbId: string
+  ): Promise<{ seedId: string; expectedEmbedding: number[] | null; similarity: number } | null> {
+    const vecStr = `[${followUpQuestionVec.join(",")}]`;
+    const rows = await prisma.$queryRaw<
+      { id: string; expectedEmbedding: string | null; similarity: number }[]
+    >`
+      SELECT id,
+             "expectedEmbedding"::text AS "expectedEmbedding",
+             1 - ("questionEmbedding" <=> ${vecStr}::vector) AS similarity
+      FROM "SeedQuestion"
+      WHERE "scenarioId" = ${scenarioDbId}
+        AND "questionEmbedding" IS NOT NULL
+      ORDER BY "questionEmbedding" <=> ${vecStr}::vector
+      LIMIT 1
+    `;
+    if (rows.length === 0) return null;
+    const row = rows[0]!;
+    const expectedEmbedding = row.expectedEmbedding
+      ? row.expectedEmbedding.slice(1, -1).split(",").map(Number)
+      : null;
+    return { seedId: row.id, expectedEmbedding, similarity: Number(row.similarity) };
   }
 
   private async getExpectedEmbedding(seedQuestionDbId: string): Promise<number[] | null> {

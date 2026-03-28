@@ -83,21 +83,31 @@ export async function upsertScenario(
   });
 
   // 1 query: load all existing seed questions for this scenario
-  // Use raw SQL to also check expectedEmbedding (Unsupported type, not selectable via Prisma client)
+  // Use raw SQL to check both Unsupported embedding columns
   const existingQuestions = await prisma.$queryRaw<
-    { id: string; questionId: string; hasEmbedding: boolean }[]
+    { id: string; questionId: string; hasExpectedEmbedding: boolean; hasQuestionEmbedding: boolean }[]
   >`
-    SELECT id, "questionId", "expectedEmbedding" IS NOT NULL AS "hasEmbedding"
+    SELECT id, "questionId",
+           "expectedEmbedding" IS NOT NULL AS "hasExpectedEmbedding",
+           "questionEmbedding"  IS NOT NULL AS "hasQuestionEmbedding"
     FROM "SeedQuestion"
     WHERE "scenarioId" = ${dbScenario.id}
   `;
   const existingMap = new Map(
-    existingQuestions.map((q) => [q.questionId, { id: q.id, expectedEmbedding: q.hasEmbedding }])
+    existingQuestions.map((q) => [q.questionId, {
+      id: q.id,
+      expectedEmbedding: q.hasExpectedEmbedding,
+      questionEmbedding: q.hasQuestionEmbedding,
+    }])
   );
 
-  // Classify questions and embed in parallel (only those that need it)
-  type ToInsert = { q: (typeof scenario.seedQuestions)[number]; embedding: number[] };
-  type ToUpdate = { id: string; embedding: number[] };
+  // Classify questions and embed in parallel (only what's missing)
+  type ToInsert = {
+    q: (typeof scenario.seedQuestions)[number];
+    expectedVec: number[];
+    questionVec: number[];
+  };
+  type ToUpdate = { id: string; expectedVec?: number[]; questionVec?: number[] };
 
   const insertItems: ToInsert[] = [];
   const updateItems: ToUpdate[] = [];
@@ -106,22 +116,32 @@ export async function upsertScenario(
     scenario.seedQuestions.map(async (q) => {
       const existing = existingMap.get(q.id);
       if (!existing) {
-        const embedding = await embedder.embed(q.groundTruth.expectedAnswer, "embedding");
-        insertItems.push({ q, embedding });
-      } else if (!existing.expectedEmbedding) {
-        const embedding = await embedder.embed(q.groundTruth.expectedAnswer, "embedding");
-        updateItems.push({ id: existing.id, embedding });
+        const [expectedVec, questionVec] = await Promise.all([
+          embedder.embed(q.groundTruth.expectedAnswer, "embedding"),
+          embedder.embed(q.question, "embedding"),
+        ]);
+        insertItems.push({ q, expectedVec, questionVec });
+      } else {
+        const update: ToUpdate = { id: existing.id };
+        const tasks: Promise<number[]>[] = [];
+        if (!existing.expectedEmbedding) tasks.push(embedder.embed(q.groundTruth.expectedAnswer, "embedding").then(v => (update.expectedVec = v, v)));
+        if (!existing.questionEmbedding) tasks.push(embedder.embed(q.question, "embedding").then(v => (update.questionVec = v, v)));
+        if (tasks.length > 0) {
+          await Promise.all(tasks);
+          updateItems.push(update);
+        }
       }
     })
   );
 
   // Write inserts and updates concurrently
   await Promise.all([
-    ...insertItems.map(({ q, embedding }) =>
+    ...insertItems.map(({ q, expectedVec, questionVec }) =>
       prisma.$executeRaw`
         INSERT INTO "SeedQuestion" (
           id, "scenarioId", "questionId", question, "expectedAnswer",
-          "requiredKeywords", "acceptableVariations", "expectedEmbedding",
+          "requiredKeywords", "acceptableVariations",
+          "expectedEmbedding", "questionEmbedding",
           "createdAt", "updatedAt"
         ) VALUES (
           gen_random_uuid(),
@@ -131,19 +151,37 @@ export async function upsertScenario(
           ${q.groundTruth.expectedAnswer},
           ${q.groundTruth.requiredKeywords ?? []},
           ${q.groundTruth.acceptableVariations ?? []},
-          ${`[${embedding.join(",")}]`}::vector,
+          ${`[${expectedVec.join(",")}]`}::vector,
+          ${`[${questionVec.join(",")}]`}::vector,
           NOW(), NOW()
         )
       `
     ),
-    ...updateItems.map(({ id, embedding }) =>
-      prisma.$executeRaw`
-        UPDATE "SeedQuestion"
-        SET "expectedEmbedding" = ${`[${embedding.join(",")}]`}::vector,
-            "updatedAt" = NOW()
-        WHERE id = ${id}
-      `
-    ),
+    ...updateItems.map(({ id, expectedVec, questionVec }) => {
+      if (expectedVec && questionVec) {
+        return prisma.$executeRaw`
+          UPDATE "SeedQuestion"
+          SET "expectedEmbedding" = ${`[${expectedVec.join(",")}]`}::vector,
+              "questionEmbedding"  = ${`[${questionVec.join(",")}]`}::vector,
+              "updatedAt" = NOW()
+          WHERE id = ${id}
+        `;
+      } else if (expectedVec) {
+        return prisma.$executeRaw`
+          UPDATE "SeedQuestion"
+          SET "expectedEmbedding" = ${`[${expectedVec.join(",")}]`}::vector,
+              "updatedAt" = NOW()
+          WHERE id = ${id}
+        `;
+      } else {
+        return prisma.$executeRaw`
+          UPDATE "SeedQuestion"
+          SET "questionEmbedding" = ${`[${questionVec!.join(",")}]`}::vector,
+              "updatedAt" = NOW()
+          WHERE id = ${id}
+        `;
+      }
+    }),
   ]);
 
   // Collect DB ids — re-use existingMap for unchanged, add newly inserted ones

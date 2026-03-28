@@ -32,7 +32,8 @@ model SeedQuestion {
   expectedAnswer       String
   requiredKeywords     String[]
   acceptableVariations String[]
-  expectedEmbedding    Unsupported("vector(3072)")?  // embedded once, reused across runs
+  expectedEmbedding    Unsupported("vector(3072)")?  // expected answer embedding — for seed semantic scoring
+  questionEmbedding    Unsupported("vector(3072)")?  // question text embedding — for follow-up nearest neighbor search
   conversations        Conversation[]
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
