@@ -128,9 +128,70 @@ TestRun → ScenarioRun → Conversation (responseEmbedding: vector(3072))
 
 ---
 
+## Insights Agent
+
+Runs fully async after a test run completes, decoupled from the main flow via a Redis message queue.
+
+```
+Test Run Completes
+       │
+       ▼
+index.ts → LPUSH insights:queue (report JSON)
+       │
+       └── returns immediately (non-blocking)
+
+Redis Queue (insights:queue)
+       │
+       ▼
+insights-worker.ts (separate process)
+       │
+       ├── BRPOP — waits for next report
+       │
+       └── InsightsAgent.analyze(report)
+               │
+               ├── For each scenario (parallel):
+               │       ├── Rule-based pass
+               │       │     model-rules.ts  → flag model issues
+               │       │     framework-rules.ts → flag scenario/setup issues
+               │       │
+               │       └── LLM pass (parallel)
+               │             model-owner-prompt.ts → deeper pattern analysis
+               │             framework-prompt.ts   → ground truth + scenario gaps
+               │
+               └── Write output files
+                     reports/analysis/{runId}-model-owner.json
+                     reports/analysis/{runId}-framework.json
+```
+
+### Two Report Audiences
+
+| Report | Audience | Focus |
+|---|---|---|
+| `model-owner.json` | Model/agent developer | Response quality, completeness failures, hallucinations, coherence, latency |
+| `framework.json` | Test framework author | Ground truth gaps, scenario design, questionnaire quality, scoring anomalies |
+
+### Issue Priority Levels
+
+| Priority | Meaning |
+|---|---|
+| critical | Breaks core functionality — must fix before release |
+| high | Significantly degrades experience |
+| medium | Noticeable but not blocking |
+| low | Minor, polish-level |
+
+### Rule-based vs LLM Detection
+
+- **Rules** detect deterministic signals: exact score = 0, completeness ≤ 0.5, latency > threshold, missing semantic scores, all seeds perfect
+- **LLM** detects patterns across turns: consistent deflection of certain question types, subtle contradictions, scenario coverage gaps
+
+---
+
 ## Future Work
 
 - ~~Fix double-embedding waste: fetch stored vectors from DB instead of re-embedding~~ ✓ done
-- Implement `questionEmbedding` on `SeedQuestion` for nearest neighbor follow-up matching
-- Implement off-topic detection with questionnaire vs model fault attribution
-- Insights agent: async report reader that suggests improvements to the model under test
+- ~~Implement `questionEmbedding` on `SeedQuestion` for nearest neighbor follow-up matching~~ ✓ done
+- ~~Implement off-topic detection with questionnaire vs model fault attribution~~ ✓ done
+- ~~Insights agent: async report reader that suggests improvements~~ ✓ done
+- Move off-topic thresholds to config
+- Cross-thread contradiction detection (pass full run history to judge)
+- Failure categorization in test summary report

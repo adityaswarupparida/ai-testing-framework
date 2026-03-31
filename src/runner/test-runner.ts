@@ -248,26 +248,31 @@ export class TestRunner {
           semanticLabel = ` ${attribution}`;
         } else {
           // On-topic — compute semantic score against matched seed's expectedEmbedding
+          // only if the follow-up question is in scope of the seed's expected answer.
+          // If not, the follow-up asks about something the ground truth doesn't cover — skip semantic.
           const matchedExpectedVec = nearest.expectedEmbedding;
           if (matchedExpectedVec) {
-            const semanticScore = this.deps.embedder.cosineSimilarity(followResponseVec, matchedExpectedVec);
-            const clampedScore = Math.max(0, Math.min(1, semanticScore));
-            const followSemanticResult: import("../types/analyzer").AnalysisResult = {
-              strategy: "semantic",
-              score: clampedScore,
-              isHumanNeed: clampedScore < 0.4,
-              roundNumber: followTurn.roundNumber,
-            };
-            allAnalysisResults.push(followSemanticResult);
-            await prisma.analysisResult.create({
-              data: {
-                conversationId: followConvId,
-                strategy: followSemanticResult.strategy,
-                score: followSemanticResult.score,
-                isHumanNeed: followSemanticResult.isHumanNeed,
-              },
-            });
-            semanticLabel = ` | semantic: ${clampedScore.toFixed(2)}`;
+            const questionToExpectedSim = this.deps.embedder.cosineSimilarity(followUpQuestionVec, matchedExpectedVec);
+            if (questionToExpectedSim >= 0.5) {
+              const semanticScore = this.deps.embedder.cosineSimilarity(followResponseVec, matchedExpectedVec);
+              const clampedScore = Math.max(0, Math.min(1, semanticScore));
+              const followSemanticResult: import("../types/analyzer").AnalysisResult = {
+                strategy: "semantic",
+                score: clampedScore,
+                isHumanNeed: clampedScore < 0.4,
+                roundNumber: followTurn.roundNumber,
+              };
+              allAnalysisResults.push(followSemanticResult);
+              await prisma.analysisResult.create({
+                data: {
+                  conversationId: followConvId,
+                  strategy: followSemanticResult.strategy,
+                  score: followSemanticResult.score,
+                  isHumanNeed: followSemanticResult.isHumanNeed,
+                },
+              });
+              semanticLabel = ` | semantic: ${clampedScore.toFixed(2)}`;
+            }
           }
         }
 

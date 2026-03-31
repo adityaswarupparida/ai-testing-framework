@@ -123,6 +123,14 @@ async function main() {
   console.log("\nStarting test run...\n");
   const report = await runner.run(scenarios, scenarioDbMaps, runName);
 
+  // Publish report to insights queue (fire and forget)
+  try {
+    await Bun.redis.lpush("insights:queue", JSON.stringify(report));
+    console.log("\n[Insights] Report queued for async analysis.");
+  } catch {
+    console.warn("[Insights] Redis unavailable — skipping insights queue.");
+  }
+
   process.exit(report.summary.status === "passed" ? 0 : 1);
 }
 

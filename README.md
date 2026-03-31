@@ -43,6 +43,18 @@ A generic black-box testing framework for any AI agent. Connect your agent via H
 ┌─────────────────────────────────────────────────────────────────────┐
 │                            Reporter                                 │
 │              console output + JSON report to ./reports              │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ publishes to Redis queue (non-blocking)
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Insights Agent (async)                        │
+│               runs in separate process via insights-worker.ts       │
+│                                                                     │
+│  rule-based pass → flags deterministic issues                       │
+│  LLM pass        → detects patterns, suggests fixes                 │
+│                                                                     │
+│  reports/analysis/{runId}-model-owner.json  ← for model developer   │
+│  reports/analysis/{runId}-framework.json    ← for framework author  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
